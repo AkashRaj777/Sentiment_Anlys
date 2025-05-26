@@ -1,0 +1,351 @@
+# Libraries needed for using GPT2
+!pip install -q git+https://github.com/huggingface/transformers.git 
+!pip install -q git+https://github.com/gmihaila/ml_things.git
+import io
+import os
+import torch
+from tqdm.notebook import tqdm
+from torch.utils.data import Dataset, DataLoader
+from sklearn.metrics import classification_report, accuracy_score
+from transformers import (set_seed,
+                          TrainingArguments,
+                          Trainer,
+                          GPT2Config,
+                          GPT2Tokenizer,
+                          get_linear_schedule_with_warmup,
+                          GPT2ForSequenceClassification)
+from torch.optim import AdamW
+# Setting seed for reproducibility
+set_seed(123)
+
+# Number of training epochs
+epochs = 3
+
+# Number of batches - depending on the max sequence length 
+batch_size = 128
+
+# Pad or truncate text sequences to a specific length, aka size of the single text
+max_length = 60
+
+# Look for gpu to use. Will use `cpu` by default if no gpu found.
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# Name of transformers model - will use already pretrained model.
+# Path of transformer model - will load your own model from local disk.
+model_name_or_path = 'gpt2'
+
+
+# Dictionary of labels and their id 
+#Dictionary that maps sentiment labels to integer values to be used during training
+labels_ids = {'negative':0,'neutral':1, 'positive': 2}
+
+# How many labels are we using in training.
+# This is used to decide size of classification head.
+n_labels = len(labels_ids)
+# In our case, n_labels = 3 (negative, neutral, positive).
+#this class basically converts the dataframe type object, to pytorch type obj 
+class sentimentdataset():
+    def __init__(self,df):
+        self.label = []
+        self.text = []
+        for txt,lbl in zip(df['pre_proce'], df['label']):
+            cnt = fix_text(txt)
+            self.text.append(cnt)
+            self.label.append(lbl)
+
+        return
+
+    def __len__(self):
+        return len(self.label)
+
+    def __getitem__(self, item):
+        return {'text':self.text[item],
+            'label':self.label[item]}
+class Gpt2ClassificationCollator(object):
+
+    def __init__(self, use_tokenizer, labels_encoder, max_sequence_len=None):
+
+        # Tokenizer to be used inside the class.
+        self.use_tokenizer = use_tokenizer
+        # Check max sequence length.
+        self.max_sequence_len = use_tokenizer.model_max_length if max_sequence_len is None else max_sequence_len
+        # Label encoder used inside the class.
+        self.labels_encoder = labels_encoder
+
+        return
+
+    def __call__(self, sequences):
+
+        # Get all texts from sequences list.
+        texts = [sequence['text'] for sequence in sequences]
+        # Get all labels from sequences list.
+        labels = [sequence['label'] for sequence in sequences]
+        # Encode all labels using label encoder.
+        labels = [self.labels_encoder[label] for label in labels]
+        # Call tokenizer on all texts to convert into tensors of numbers with appropriate padding.
+        inputs = self.use_tokenizer(text=texts, return_tensors="pt", padding=True, truncation=True,  max_length=self.max_sequence_len)
+        # Update the inputs with the associated encoded labels as tensor.
+        inputs.update({'labels':torch.tensor(labels)})
+
+        return inputs
+
+def train(dataloader, optimizer_, scheduler_, device_):
+    # Use global variable for model.
+    global model
+
+    # Tracking variables.
+    predictions_labels = []
+    true_labels = []
+    # Total loss for this epoch.
+    total_loss = 0
+
+    # Put the model into training mode.
+    model.train()
+
+    # For each batch of training data...
+    for batch in tqdm(dataloader, total=len(dataloader)):
+        #tqdm is for progress bar. Training Dataset has 50401 rows and batch size is 128. So, this loop will run close to 400 times, once for each epoch
+        
+        true_labels += batch['labels'].numpy().flatten().tolist()
+        # Full list of label across all batches would be stored in true_labels. Used for calculating model's accuracy.
+        
+        batch = {k:v.type(torch.long).to(device_) for k,v in batch.items()}
+        # Converting to long tensor (64bit tensor)
+        
+        model.zero_grad()
+        # Clearing the gradients otherwise gradients gets accumulated leading to incorrect updates during training
+        
+        outputs = model(**batch)
+        # For every record, logits has raw prediction score for every label. logits is 2D array of batchsize * labels
+        # loss value is higher when the prediction is wrong, and closer to 0 when correct.
+        loss, logits = outputs[:2]
+        
+        #total loss finally contains total loss for that one epoch
+        total_loss += loss.item()
+        
+        # this computes gradient of the loss w.r.t. each parameter in the model.
+        loss.backward()
+        
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+        scheduler.step()
+        # It converts logits (which is a PyTorch tensor) into a NumPy array, making it easier to manipulate or analyze.
+        logits = logits.detach().cpu().numpy()
+        
+        # It extracts the predicted class labels (as a list of integers) from the logits and appends them to predictions_labels.
+        predictions_labels += logits.argmax(axis=-1).flatten().tolist()
+
+    # Calculate the average loss over the training data.
+    avg_epoch_loss = total_loss / len(dataloader)
+    return true_labels, predictions_labels, avg_epoch_loss
+
+def validation(dataloader, device_):
+    """Validation function is to evaluate model performance on a separate set of data.
+    This function will return the true and predicted labels, which we use later to evaluate the model's performance.
+    """
+
+    # Use global variable for model.
+    global model
+
+    # Tracking variables
+    predictions_labels = []
+    true_labels = []
+    #total loss for this epoch.
+    total_loss = 0
+
+    # Put the model in evaluation mode
+    model.eval()
+
+    # Evaluate data for one epoch
+    for batch in tqdm(dataloader, total=len(dataloader)):
+        # add original labels
+        true_labels += batch['labels'].numpy().flatten().tolist()
+
+        # move batch to device
+        batch = {k:v.type(torch.long).to(device_) for k,v in batch.items()}
+
+        # Telling the model not to compute or store gradients, saving memory and thereby speeding up validation
+        with torch.no_grad():
+            outputs = model(**batch)
+            loss, logits = outputs[:2]
+            logits = logits.detach().cpu().numpy()
+            total_loss += loss.item()
+            # get predicitons to list
+            predict_content = logits.argmax(axis=-1).flatten().tolist()
+            predictions_labels += predict_content
+
+    # Calculate the average loss over the training data.
+    avg_epoch_loss = total_loss / len(dataloader)
+
+    # Return all true labels and prediciton for future evaluations.
+    return true_labels, predictions_labels, avg_epoch_loss
+
+# Get model configuration.
+print('Loading configuration...')
+model_config = GPT2Config.from_pretrained(pretrained_model_name_or_path=model_name_or_path, num_labels=n_labels)
+
+# Get model's tokenizer.
+print('Loading tokenizer...')
+
+tokenizer = GPT2Tokenizer.from_pretrained(pretrained_model_name_or_path=model_name_or_path)
+# default to left padding
+tokenizer.padding_side = "left"
+# Define PAD Token = EOS Token = 50256
+tokenizer.pad_token = tokenizer.eos_token
+
+# Get the actual model.
+print('Loading model...')
+model = GPT2ForSequenceClassification.from_pretrained(pretrained_model_name_or_path=model_name_or_path, config=model_config)
+
+# resize model embedding to match new tokenizer
+model.resize_token_embeddings(len(tokenizer))
+
+# fix model padding token id
+model.config.pad_token_id = model.config.eos_token_id
+
+# Load model to defined device.
+model.to(device)
+print('Model loaded to `%s`'%device)
+import pandas as pa
+# Input is pre-processed file with two variables pre_proce (independent) and label (target)
+csv =  pa.read_csv(r"C:\Users\Akash\preprocess2aku.csv", engine='python')
+csv['pre_proce'] = csv['pre_proce'].astype(str) 
+csv['label'] = csv['label'].fillna('neutral')  # Replace NaNs with 'neutral' (or any default label)
+print(csv.head)
+
+# X is pre_proce  - this is independent / feature / Predictor variable
+# y is label - this is dependent / Target / output variable
+X = csv['pre_proce']
+y =  csv['label']
+
+from sklearn.model_selection import train_test_split
+
+X_train, X_test, y_train, y_test = train_test_split(X,y,test_size=0.25,random_state=42)
+#split a dataset into training and testing sets with test_size=25% and 75% for training.
+#42 is an arbitrary seed value commonly used for reproducibility (to get consistent result)
+
+tr = pa.concat([X_train,y_train], axis = 1)  #axis=1 stack data x_train,y_train side by side
+te = pa.concat([X_test,y_test], axis = 1)
+# Create data collator to encode text and labels into numbers.
+gpt2_classificaiton_collator = Gpt2ClassificationCollator(use_tokenizer=tokenizer,
+                                                          labels_encoder=labels_ids,
+                                                          max_sequence_len=max_length)
+
+
+print('Dealing with Train...')
+# tr (dataframe type object) is getting converted to train_dataset (Pytorch dataset type object) 
+# which will be in the form of - {'text': 'Bitcoin is booming', 'label': 'positive'}
+train_dataset = sentimentdataset(tr)
+
+print('Created `train_dataset` with %d examples!'%len(train_dataset))
+
+# Move pytorch dataset into dataloader.
+# Below line creates a PyTorch DataLoader object that prepares your training data in batches and feeds it to the model during training.
+train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=gpt2_classificaiton_collator)
+print('Created `train_dataloader` with %d batches!'%len(train_dataloader))
+
+
+print('Dealing with Validation...')
+# Create pytorch dataset.
+valid_dataset = sentimentdataset(te)
+
+print('Created `valid_dataset` with %d examples!'%len(valid_dataset))
+
+# Move pytorch dataset into dataloader.
+valid_dataloader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, collate_fn=gpt2_classificaiton_collator)
+print('Created `eval_dataloader` with %d batches!'%len(valid_dataloader))
+# AdamW is a class from the huggingface (now pytorch) library 
+# the 'W' stands for 'Weight Decay fix", it is used to improve performance by minimizing losses to further improve from every batch 
+optimizer = AdamW(model.parameters(),
+                  lr = 5e-5, # default is 5e-5
+                  eps = 1e-8 # default is 1e-8.
+                  )
+
+# Total number of training steps is number of batches * number of epochs.
+# `train_dataloader` contains batched data so `len(train_dataloader)` gives us the number of batches.
+total_steps = len(train_dataloader) * epochs
+
+# Create the learning rate scheduler.
+# get_linear_schedule_with_warmup is an inbuilt function from Hugging Face Transformers library
+# It begins with a high learning rate,and then linearly decreases for the remaining training steps.
+# In our case, The learning rate starts high (no warmup step) and linearly decays to zero.
+scheduler = get_linear_schedule_with_warmup(optimizer,
+                                            num_warmup_steps = 0, # Default value 
+                                            num_training_steps = total_steps)
+
+best_metric_value = 0
+
+# Loop through each epoch.
+print('Epoch')
+for epoch in tqdm(range(epochs)):
+    print('Training on batches...')
+    # Perform one full pass over the training set.
+    train_labels, train_predict, train_loss = train(train_dataloader, optimizer, scheduler, device)
+    train_acc = accuracy_score(train_labels, train_predict)
+    # accuracy_score is a function from scikit-learn and it compares the true labels (train_labels) 
+    # with the predicted labels (train_predict) and calculates it.
+    # Accuracy = (Number of correct predictions) / (Total predictions)
+
+    # Get prediction form model on validation data.
+    print('Validation on batches...')
+    valid_labels, valid_predict, val_loss = validation(valid_dataloader, device)
+    val_acc = accuracy_score(valid_labels, valid_predict)
+
+    # Print loss and accuracy values to see how training evolves.
+    print("  train_loss: %.5f - val_loss: %.5f - train_acc: %.5f - valid_acc: %.5f"%(train_loss, val_loss, train_acc, val_acc))
+
+    if val_acc > best_metric_value:
+        # You can use any metric you prefer (e.g., val_loss)
+        # Update the best metric value
+        best_metric_value = val_acc  # Update with the current metric value
+        # Save the best model
+        torch.save(model.state_dict(), 'best_model_{}.pth'.format(epoch))
+        print("Saved the best model at epoch", epoch)
+import torch
+from transformers import GPT2Tokenizer, GPT2ForSequenceClassification, GPT2Config
+
+def load_model(model_path, model_name_or_path='gpt2', labels_ids=None):
+    if labels_ids is None:
+        labels_ids = {'negative': 0, 'neutral': 1, 'positive': 2}
+
+    n_labels = len(labels_ids)
+
+    # Load model config and tokenizer
+    model_config = GPT2Config.from_pretrained(pretrained_model_name_or_path=model_name_or_path, num_labels=n_labels)
+    tokenizer = GPT2Tokenizer.from_pretrained(pretrained_model_name_or_path=model_name_or_path)
+    tokenizer.padding_side = "left"
+    tokenizer.pad_token = tokenizer.eos_token
+
+    # Load model
+    model = GPT2ForSequenceClassification.from_pretrained(pretrained_model_name_or_path=model_name_or_path, config=model_config)
+    model.resize_token_embeddings(len(tokenizer))
+    model.config.pad_token_id = model.config.eos_token_id
+
+    # Load model(device)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.to(device)
+    model.eval()
+
+    return model, tokenizer, labels_ids, device
+
+
+def predict_sentiment(text, model, tokenizer, labels_ids, device):
+    # Prepare input
+    inputs = tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=60)
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+
+    # Predict sentiment
+    with torch.no_grad():
+        outputs = model(**inputs)
+        logits = outputs.logits
+        predicted_class = torch.argmax(logits, dim=1).item()
+
+    # Map predicted class to sentiment label
+    for label, label_id in labels_ids.items():
+        if label_id == predicted_class:
+            return label
+
+# Load the model and tokenizer
+model_path = 'best_model_2.pth'  # Path to your saved model
+model, tokenizer, labels_ids, device = load_model(model_path)
