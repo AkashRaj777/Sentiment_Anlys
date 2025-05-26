@@ -1,0 +1,61 @@
+import streamlit as st
+import io
+import os
+import torch
+from tqdm.notebook import tqdm
+from torch.utils.data import Dataset, DataLoader
+from transformers import (set_seed,
+                          TrainingArguments,
+                          Trainer,
+                          GPT2Config,
+                          GPT2Tokenizer,
+                          get_linear_schedule_with_warmup,
+                          GPT2ForSequenceClassification)
+from torch.optim import AdamW
+
+from tqdm import tqdm
+from transformers import AutoModelForSequenceClassification, GPT2Tokenizer
+
+tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+tokenizer.pad_token = tokenizer.eos_token
+device = torch.device('cpu')
+model = AutoModelForSequenceClassification.from_pretrained('gpt2', num_labels=3)
+#./best_model/
+model.load_state_dict(torch.load('./best_model/best_model_2.pth', map_location=torch.device('cpu')))
+model = model.to('cpu')
+model.eval()
+
+    
+# Function to make predictions
+def predict(text_input):    
+    test_text = text_input.lower()
+    test_input_ids = tokenizer(test_text, truncation=True, padding=True, return_tensors='pt').input_ids
+    test_input_ids = test_input_ids.to('cpu')
+    with torch.no_grad():
+        outputs = model(test_input_ids)
+        
+    predicted_class = torch.argmax(outputs.logits, dim=1).item()
+
+    if(predicted_class == 0):
+        return 'negative'
+    elif(predicted_class == 1):
+        return 'neutral'
+    else:
+        return 'positive'
+
+# Streamlit app
+def main():
+    st.title('Find the Sentiment!')
+    st.image('btc.jpg', use_column_width=True)
+
+    # Input text box
+    input_text = st.text_area("Enter text:", "Type/paste here...")
+
+    # Make prediction on button click
+    if st.button("Emotion ?"):
+        prediction = predict(input_text)
+        st.success(f"{prediction}")
+
+# Run the app
+if __name__ == '__main__':
+    main()
