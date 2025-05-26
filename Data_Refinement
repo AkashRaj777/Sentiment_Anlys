@@ -1,0 +1,159 @@
+import nltk
+custom_path=r"C:\Users\Akash\nltk_data"
+nltk.data.path.insert(0,custom_path)
+print(nltk.data.path)
+#Download the zip files from https://www.nltk.org/nltk_data/ and place them in appropriate folder under nltk_data
+#These NLTK (Natural Language Toolkit) is a powerful Python library is needed for Tokenization, Stopword Removal, Lemmatization and to handle multi-lingual data
+#~/nltk_data/
+#    ├── corpora/
+#    │   ├── wordnet/  
+#    │   ├── stopwords/, omw-1.4
+#    ├── tokenizers/
+#    │   ├── punkt/
+import numpy as np
+import os
+import pandas as pd
+import nltk
+import re
+import advertools as adv 
+# advertools library provides tools for handling text, emojis, URL parameters.
+#I is the dataframe containing the input preprocessed data
+I=pd.read_csv(r'C:\Users\Akash\cryptotweets.csv',skipfooter=0)
+I.head()
+I.shape
+#dir(adv)
+<h1> Preprocessing</h1>
+# Extracting
+hashtag_summary = adv.extract_hashtags(I['text'])
+mention_summary = adv.extract_mentions(I['text'])
+currency_summary = adv.extract_currency(I['text'])
+number_summary = adv.extract_numbers(I['text'])
+question_summary = adv.extract_questions(I['text'])
+exclamation_summary = adv.extract_exclamations(I['text'])
+emoji_summary = adv.extract_emoji(I['text'])
+currency_Extra_summary = adv.extract_currency(I['text'])
+print(currency_Extra_summary['currency_symbols_flat'])
+print(currency_Extra_summary['top_currency_symbols'])
+print(emoji_summary['emoji_flat'])
+print(emoji_summary['top_emoji'])
+print(hashtag_summary['hashtags'])
+print(mention_summary['mentions'])
+print(currency_summary['currency_symbols'])
+print(number_summary['numbers'])
+print(exclamation_summary['exclamation_marks'])
+Emoji_data=pd.DataFrame({
+    'emoji': emoji_summary['emoji'],
+    'emoji_category': emoji_summary['emoji_text']
+})
+
+Emoji_data
+# Till here, it is just interpretation of input csv file
+# This function cleans and preprocesses text by Removing URLs,Removing special characters and punctuation,also
+# tokenizing words,Removing numbers,Filtering out emojis and other unwanted symbols
+def remove_url(word):
+   # result=re.sub(r'"",word)
+    result=re.sub(r'http\S+', "", word)
+    result_1= word_tokenize(result)
+    result_2=re.sub(r'[#\,\-\"\@\$\₿\:\?\!\:\.\{\}\(\)\...\/\£\𝟏𝟎\𝟐𝟏\...\_\...\"\"]', " ", result)
+    result_3=re.sub(r'[0-9]',"",result_2)
+    result_4=re.sub(r'[""\\\…\%\&\;\’\€\+\'\🔄\😎\🎬\👉\📌\💹\📈\👈\⬆️\🔥\🔑\🚀]',"",result_3)
+    result_4=re.sub(r'[😘\💕\⛅\🩸\🍄\👌\➡️\🔱\🏁\🌽\🤛\🤑\3️⃣\🌏\❄\💜\6⃣\🤝\⏩\❗\⏰\💪\🏼\🍔\😟\✅\➡\👉\🏾\⁉️\🔻\🦄\🌴\🤷\♂️\🔶\🤭\🤖\🤦🏼\🎮\⬆️\👿\💵\🎅\👇\🏻\😒\📉\🤐\🤪\💨\😳\💚\👩\💻\🎲\💪\🌝\👑\🙏\☄️\🐻\☝️\🗳\🥳\💰\👎\👏\🏼\🙌\⚡\🔑\🥸\🥂\✊\🔝\🎬\🧧\😂\🤣\📶\‼️\💪\🏻\⛄\😏\🐳\👏\😌\📌\🔜\🌋\🛑\🧿\👍\🏻\🐕\😜\🏆\😍\🎟️\😅\💌\🥞\🧡\🤓\🌐\🤔\🙌\🏽\💠\🔄\🚫\🎊\🔥\📣\😊\💥\🐂\⬇️\🚀\🔴\😃\2️⃣\👇\🌍\🙂\🐰\💹\🎄\📢\🎶\🧑\🌾\😆\💳\🔽\🚶\💪\🏽\😥\📈\🔗\🧱\☠️\😉]',"",result_4)
+    result_5=re.sub(r'[✋\🏼\🤴\👋\🐶\1️⃣\📹\🤫\🐿️\🎁\🤞\🏃\💲\🌕\⚽\📖\🌲\🤷🏻\♂️\🧨\🧐\😦\🪐\🤯\😮\👩\💻\🌳\🌙\🆙\😀\👊\👾\🍑\0⃣\👀\✈️\✌️\✨\📊\🏵\🦠\🤦🏽\❤️\⭐\🎯\♥️\💍\🐿\🌟\⚠\🔁\☕\⚠️\🎰\🔵\✋\☝\🏽\👍\🌊\🥶\🙄\🏮\📰\🌱\🌖\🤜\🚨\🧑\🚀\👇\🏼\🥛\▶️\⛔\😄\💯\🚦\😬\🎵\👈\💶\💝\🪙\🔸\🍀\🔒\🎾\🍕\🌿\🟢\👉\🍪\™\😎\❤\🎟\🧙\🤩\💸\🌎\🔼\💎\😱\👏\🏽\▶\🎉\🤷🏾\🧙\🥺\💢\🚹\❄️\☃️]',"",result_4)
+    result_5=re.sub(r'[\\]',"",result_5)
+    result_5=re.sub(r'[\n]',"",result_5)
+    return result_5
+import nltk
+from nltk.tokenize import word_tokenize
+
+nltk.download('punkt_tab', download_dir=r"C:\Users\Akash\nltk_data")
+nltk.data.find('tokenizers/punkt')
+print(word_tokenize("hello, how are you?"))
+# This does not create a copy; instead, B_F is just a reference to I (both point to the same memory).
+B_F=I
+print(B_F.head())
+B_F['text'] = B_F['text'].apply(remove_url)
+print(B_F.head())
+# A new column processed_data is created, storing the cleaned text.
+B_F['processed_data']=B_F['text']
+# This restores the original text from I, meaning that the text column is reset.
+print(B_F.head())
+hashtag_summary = adv.extract_hashtags(B_F['processed_data'])
+mention_summary = adv.extract_mentions(B_F['processed_data'])
+currency_summary = adv.extract_currency(B_F['processed_data'])
+number_summary = adv.extract_numbers(B_F['processed_data'])
+question_summary = adv.extract_questions(B_F['processed_data'])
+exclamation_summary = adv.extract_exclamations(B_F['processed_data'])
+emoji_summary = adv.extract_emoji(B_F['processed_data'])
+
+print(hashtag_summary['overview'])
+print(mention_summary['overview'])
+print(currency_summary['overview'])
+print(number_summary['overview'])
+print(question_summary ['overview'])
+print(exclamation_summary['overview'])
+print(emoji_summary['emoji'])
+print(hashtag_summary['hashtags'])
+
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import stopwords
+lemmatizer = WordNetLemmatizer()
+stop_words = set(stopwords.words("english"))
+# This code tokenizes each row in the processed_data column of the B_F DataFrame using the word_tokenize() function.
+# print(B_F.index)
+for i in B_F.index:
+    B_F['processed_data'][i]=word_tokenize(B_F['processed_data'][i])
+print(B_F.head())
+def lower_text(sample):
+    lower_txt=[x.lower() for x in sample]
+    return lower_txt
+B_F['token_data']=B_F['processed_data']
+for j in B_F.index:
+    sample= B_F['processed_data'][j]
+    low_txt=lower_text(sample)
+    B_F['token_data'][j]=low_txt
+def lemmatize_txt(sample):
+    lemm_txt=[ lemmatizer.lemmatize(x) for x in sample]
+    return lemm_txt
+filtered_data=[]
+def stop_word_rem(words):
+    filtered_data=[word for word in words if word.casefold() not in stop_words]
+    return filtered_data
+B_F['token_lower']=B_F['token_data']
+B_F['lammantized_data']=B_F['token_lower']
+# Lemmatization reduces words to their base form (like guys to guy )
+for k in B_F.index:
+    sample=B_F['token_lower'][k]
+    lem_data=lemmatize_txt(sample)
+    B_F['lammantized_data'][k]=lem_data
+print((B_F['token_lower'][2]),'\n',B_F['processed_data'][2],'\n',B_F['lammantized_data'][2])
+B_F['Text_without_stop']=B_F['lammantized_data']
+# to remove Stopwords like "the", "is", "in", etc., that do not add significant meaning and can be removed for further analysis.
+for m in B_F.index:
+    sample=B_F['lammantized_data'][m]
+    stop_txt=stop_word_rem(sample)
+    B_F['Text_without_stop'][m]=stop_txt
+    
+print((B_F['token_lower'][2]),'\n',B_F['processed_data'][2],'\n',B_F['lammantized_data'][2], '\n',B_F['Text_without_stop'][2])
+from textblob import TextBlob
+def spell_Chk(sample1):
+    spell_data=[str(TextBlob(x).correct()) for x in sample1]
+    return spell_data
+B_F['spell_chk']=B_F['Text_without_stop']
+B_F['pre_proce']=B_F['spell_chk']
+#for n in B_F.index:
+    #sample=B_F['Text_without_stop'][n]
+    #spell_txt=spell_Chk(sample)
+    #B_F['spell_chk'][n]=spell_txt
+#B_F['spell_chk'] = B_F['Text_without_stop'].apply(spell_Chk)
+print((B_F['token_lower'][3]),'\n',B_F['processed_data'][3],'\n',B_F['lammantized_data'][3], '\n',B_F['Text_without_stop'][3],'\n',B_F['spell_chk'][3])
+#input: ['hello','world]  output: hello world
+for q in B_F.index:
+    a = B_F['spell_chk'][q]
+    #remove ,
+    b = ''.join(str(a).split(','))
+    #remove [ and ] and '
+    b=re.sub(r'[\[\]\'\']'," ",b)
+    B_F['pre_proce'][q]=b
+print(B_F['text'][3],'\n',B_F['token_lower'][3],'\n',B_F['processed_data'][3],'\n',B_F['lammantized_data'][3], '\n',B_F['Text_without_stop'][3],'\n',B_F['spell_chk'][3],'\n',B_F['pre_proce'][3])
+type(B_F)
+B_F.to_csv(r'C:\Users\Akash\preprocess1.csv')
