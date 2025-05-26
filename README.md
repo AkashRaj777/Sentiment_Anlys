@@ -1,4 +1,4 @@
-Decoding Cryptocurrency Sentiments on Twitter using GPT-2
+# Decoding Cryptocurrency Sentiments on Twitter using GPT-2
 
 This project aims to analyze public sentiment on cryptocurrency by leveraging a fine-tuned GPT-2 language model to classify tweets into positive, negative, or neutral categories. With the explosive growth of crypto discussions on social media, understanding public mood can provide valuable insights for traders, analysts, and researchers.
 
